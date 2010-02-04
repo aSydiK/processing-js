@@ -419,6 +419,21 @@
       start = new Date().getTime(),
       timeSinceLastFPS = start,
       framesSinceLastFPS = 0;
+      
+    //Camera Variables
+    var cam             = new Array( 16 ),
+        camInv          = new Array( 16 ),
+        modelView       = new Array( 16 ),
+        modelViewInv    = new Array( 16 ),
+        projection      = new Array( 16 ),
+        frustumMode     = false,
+        cameraFOV       = 60 * ( p.PI / 180 ),
+        cameraX         = curElement.width / 2,
+        cameraY         = curElement.height / 2,
+        cameraZ         = cameraY / Math.tan( cameraFOV / 2 ),
+        cameraNear      = cameraZ / 10,
+        cameraFar       = cameraZ * 10,
+        cameraAspect    = curElement.width / curElement.height;
 
     var firstX, firstY, secondX, secondY, prevX, prevY;
 
@@ -2058,6 +2073,78 @@
     }
 
     p.PVector = PVector;
+    
+    ////////////////////////////////////////////////////////////////////////////
+    // Camera functions
+    ////////////////////////////////////////////////////////////////////////////
+    
+    p.camera = function camera(){
+        if( arguments.length === 0 ){
+            //in case canvas is resized
+            cameraX = curElement.width / 2;
+            cameraY = curElement.height / 2;
+            cameraZ = cameraY / Math.tan( cameraFOV / 2 );
+            p.camera( cameraX, cameraY, cameraZ,
+                      cameraX, cameraY, 0,
+                      0, 1, 0 );
+        }
+        else{
+            var a = arguments;
+            var z = new p.PVector( a[ 0 ] - a[ 3 ], a[ 1 ] - a[ 4 ], a[ 2 ] - a[ 5 ] );
+            var y = new p.PVector( a[ 6 ], a[ 7 ], a[ 8 ]);
+            var transX, transY, transZ;            
+            z.normalize();            
+            var x = p.PVector.cross( y, z );        
+            y = p.PVector.cross( z, x );            
+            x.normalize();
+            y.normalize();            
+            transX = a[ 0 ] * x.x + a[ 1 ] * x.y + a[ 2 ] * x.z;
+            transY = a[ 0 ] * y.x + a[ 1 ] * y.y + a[ 2 ] * y.z;
+            transZ = a[ 0 ] * z.x + a[ 1 ] * z.y + a[ 2 ] * z.z;            
+            cam = [ x.x,        x.y,        x.z,        0,
+                    y.x,        y.y,        y.z,        0,
+                    z.x,        z.y,        z.z,        0,
+                    -1*transX,  -1*transY,  -1*transZ,  1 ];                      
+            camInv = [ x.x,      x.y,    x.z,    0,
+                       y.x,      y.y,    y.z,    0,
+                       z.x,      z.y,    z.z,    0,
+                       transX,   transY, transZ, 1 ];
+            modelView = cam;
+            modelViewInv = camInv;
+        }
+    };
+    
+    p.perspective = function perspective(){
+        if( arguments.length === 0 ){
+            //in case canvas is resized
+            cameraNear      = cameraZ / 10;
+            cameraFar       = cameraZ * 10;
+            cameraAspect    = curElement.width / curElement.height;
+            p.perspective( cameraFOV, cameraAspect, cameraNear, cameraFar );
+        }
+        else{        
+            var a = arguments;
+            var yMax, yMin, xMax, xMin;            
+            yMax = a[ 2 ] * Math.tan( a[ 0 ] / 2 );
+            yMin = -1 * yMax;            
+            xMax = yMax * a[ 1 ];
+            xMin = yMin * a[ 1 ];            
+            p.frustum( xMin, xMax, yMin, yMax, a[ 2 ], a[ 3 ] );        
+        }
+    };
+
+    p.frustum = function frustum( left, right, bottom, top, near, far ){
+        /* The following was the projection set within the java code:
+        projection.set((2*znear)/(right-left),  0,                      (right+left)/(right-left),  0,
+                       0,                       (2*znear)/(top-bottom), (top+bottom)/(top-bottom),  0,
+                       0,                       0,                      -(zfar+znear)/(zfar-znear), -(2*zfar*znear)/(zfar-znear),
+                       0,                       0,                      -1,                         0);*/
+        frustumMode = true;                           
+        projection = [ (2*near)/(right-left),       0,                          (right+left)/(right-left),  0,
+                       0,                           (2*near)/(top-bottom),      (top+bottom)/(top-bottom),  0,
+                       0,                           0,                          -(far+near)/(far-near),     -1,
+                       0,                           0,                          -(2*far*near)/(far-near),   0];
+    };
 
 
     ////////////////////////////////////////////////////////////////////////////
