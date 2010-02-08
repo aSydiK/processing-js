@@ -2219,17 +2219,12 @@
 	};
 
 	p.frustum = function frustum( left, right, bottom, top, near, far ){
-	  /* The following was the projection set within the java code:
-	  projection.set((2*znear)/(right-left),  0,                      (right+left)/(right-left),  0,
-					 0,                       (2*znear)/(top-bottom), (top+bottom)/(top-bottom),  0,
-					 0,                       0,                      -(zfar+znear)/(zfar-znear), -(2*zfar*znear)/(zfar-znear),
-					 0,                       0,                      -1,                         0);*/
 	  frustumMode = true;
 	  projection = new PMatrix3D();
-	  projection.set( (2*near)/(right-left),       0,                          (right+left)/(right-left),  0,
-					  0,                           (2*near)/(top-bottom),      (top+bottom)/(top-bottom),  0,
-					  0,                           0,                          -(far+near)/(far-near),     -1,
-					  0,                           0,                          -(2*far*near)/(far-near),   0 );
+	  projection.set( (2*near)/(right-left),       0,                          (right+left)/(right-left),	0,
+					  0,                           (2*near)/(top-bottom),      (top+bottom)/(top-bottom),	0,
+					  0,                           0,                          -(far+near)/(far-near),		-(2*far*near)/(far-near),
+					  0,                           0,                          -1,							0 );
 	};
 
 	p.ortho = function ortho(){
@@ -2244,10 +2239,10 @@
 		var ty = -( a[ 3 ] + a[ 2 ] ) / ( a[ 3 ] - a[ 2 ] );
 		var tz = -( a[ 5 ] + a[ 4 ] ) / ( a[ 5 ] - a[ 4 ] );
 		projection = new PMatrix3D();
-		projection.set( x,  0,  0,  0,
-						0,  y,  0,  0,
-						0,  0,  z,  0,
-						tx, ty, tz, 1 );
+		projection.set( x,  0,  0,  tx,
+						0,  y,  0,  ty,
+						0,  0,  z,  tz,
+						0, 0, 0, 1 );
 		frustumMode = false;
 	  }
 	};
