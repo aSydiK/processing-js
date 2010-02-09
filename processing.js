@@ -2587,21 +2587,21 @@
 	};
 
 	PMatrix3DStack.prototype.mult = function mult( matrix ){        
-	  var tmpMatrix = new PMatrix3D(),
+	  /*var tmpMatrix = new PMatrix3D(),
 		  multMatrix = new PMatrix3D();
 	  tmpMatrix.set( 0, 0, 0, 0,
 					 0, 0, 0, 0,
 					 0, 0, 0, 0,
 					 0, 0, 0, 0 );
 	  multMatrix.set( matrix );
-	  for (var row = 0; row < 4; row++){
+	  for (var row = 0; row < 4; row++){  //*** might wish to implement this to apply ***
 		for (var col = 0; col < 4; col++){
 		  for (var con = 0; con < 4; con++){
 			tmpMatrix.elements[ row * 4 + col ] += ( this.matrixStack[ this.matrixStack.length - 1  ].elements[ row * 4 + con ] * multMatrix.elements[ con * 4 + col ] );
 		  }
 		}
-	  }        
-	  this.matrixStack.push( tmpMatrix );
+	  }*/        
+	  this.matrixStack[ this.matrixStack.length - 1 ].apply( matrix );
 	};
 
     ////////////////////////////////////////////////////////////////////////////
