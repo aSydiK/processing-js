@@ -1151,6 +1151,8 @@
 
     var vertArray = [],
         isCurve = false;
+        isBezier = false,
+        firstVert = true;
 
     // Stores states for pushStyle() and popStyle().
     var styleArray = new Array(0);
@@ -5545,6 +5547,7 @@
     };
 
     p.vertex = function vertex() {
+      if(firstVert){ firstVert = false; }
       var vert = [];
       if(arguments.length === 4){ //x, y, u, v
         vert[0] = arguments[0];
@@ -5656,6 +5659,7 @@
     };
 
     p.endShape = function endShape(close){
+      firstVert = true;
       var i, j, k;
       var last = vertArray.length - 1;
       if(!close){
@@ -5697,6 +5701,20 @@
             curContext.closePath();
           }
         }
+      }
+      else if(isBezier && curShape === p.POLYGON || isBezier && curShape === undefined){
+        curContext.beginPath();
+        curContext.moveTo(vertArray[0][0], vertArray[0][1]);
+        for(i = 1; i < vertArray.length; i++){
+          curContext.bezierCurveTo(vertArray[i][0], vertArray[i][1], vertArray[i][2], vertArray[i][3], vertArray[i][4], vertArray[i][5]);
+        }
+        if(doFill){
+          curContext.fill();
+        }
+        if(doStroke){
+          curContext.stroke();
+        }
+        curContext.closePath();
       }
       else{
         if(p.use3DContext){ // 3D context
@@ -6014,6 +6032,24 @@
           curContext.closePath();
         }
       }
+      isCurve = false;
+      isBezier = false;
+    };
+
+    p.bezierVertex = function(){
+      isBezier = true;
+      var vert = [];
+      if(firstVert){
+        throw ("vertex() must be used at least once before calling bezierVertex()");
+      }
+      else{
+        if(arguments.length === 6){
+          for(var i = 0; i < arguments.length; i++){ vert[i] = arguments[i]; }
+        }
+        else{ //for 9 arguments (3d)
+        }
+        vertArray.push(vert);
+      }
     };
 
     p.curveVertex = function(x, y, z) {
@@ -6125,8 +6161,6 @@
       curveDetail = arguments[0];
       curveInit();
     };
-
-    p.bezierVertex = p.vertex;
 
     p.rectMode = function rectMode(aRectMode) {
       curRectMode = aRectMode;
