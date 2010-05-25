@@ -240,6 +240,7 @@
     // PJS defined constants
     p.SINCOS_LENGTH      = parseInt(360 / 0.5, 10);
     p.FRAME_RATE         = 0;
+    p.KEY_PRESSED        = false;
     p.focused            = true;
     p.PRECISIONB         = 15; // fixed point precision is limited to 15 bits!!
     p.PRECISIONF         = 1 << p.PRECISIONB;
@@ -288,7 +289,6 @@
         pathOpen = false,
         mousePressed = false,
         mouseDragging = false,
-        keyPressed = false,
         curColorMode = p.RGB,
         curTint = function() {},
         curTextSize = 12,
@@ -7688,15 +7688,10 @@
     }
 
     attach(document, "keydown", function(e) {
-      keyPressed = true;
+      p.KEY_PRESSED = true;
       p.keyCode = null;
       p.key = keyCodeMap(e.keyCode, e.shiftKey);
-
-      if (typeof p.keyPressed === "function") {
-        keyFunc(e, p.keyPressed);
-      } else {
-        p.keyPressed = true;
-      }
+      keyFunc(e, p.keyPressed);
     });
 
     attach(document, "keyup", function(e) {
@@ -7704,10 +7699,7 @@
       p.key = keyCodeMap(e.keyCode, e.shiftKey);
 
       //TODO: This needs to only be made false if all keys have been released.
-      keyPressed = false;
-      if (typeof p.keyPressed !== "function") {
-        p.keyPressed = false;
-      }
+      p.KEY_PRESSED = false;
       if (p.keyReleased) {
         keyFunc(e, p.keyReleased);
       }
@@ -7917,6 +7909,7 @@
     // the Processing.js source, replace frameRate so it isn't
     // confused with frameRate().
     aCode = aCode.replace(/(\s*=\s*|\(*\s*)frameRate(\s*\)+?|\s*;)/, "$1p.FRAME_RATE$2");
+    aCode = aCode.replace(/keyPressed\s*([^\(])/g, "KEY_PRESSED$1");
 
     // Simple convert a function-like thing to function
     aCode = aCode.replace(/(?:static )?(\w+(?:\[\])*\s+)(\w+)\s*(\([^\)]*\)\s*\{)/g, function(all, type, name, args) {
