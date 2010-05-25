@@ -7675,7 +7675,7 @@
     }
 
     var keyFunc = function (e, type){
-      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera"){
+      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera" || BrowserDetect.browser === "Mozilla"){
         if(e.keyCode === 16 
         || e.keyCode === 17 
         || e.keyCode === 18 
@@ -7721,7 +7721,7 @@
       // key repeats happen, others (firefox) don't. Either way keyCode and
       // key should remain correct.
 
-      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera"){
+      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera" || BrowserDetect.browser === "Mozilla"){
         if(!(e.keyCode === 144 || e.keyCode === 20 || (e.keyCode === 0 && e.charCode === null))){ p.keyPressed(); }
       }
       
