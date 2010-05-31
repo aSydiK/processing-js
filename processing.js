@@ -7338,6 +7338,128 @@
     };
 
     //////////////////////////////////////////////////////////////////////////
+    // Browser and OS Detection
+    //////////////////////////////////////////////////////////////////////////
+
+    var BrowserDetect = {
+      init: function () {
+        this.browser = this.searchString(this.dataBrowser) || "An unknown browser";
+        this.version = this.searchVersion(navigator.userAgent)
+          || this.searchVersion(navigator.appVersion)
+          || "an unknown version";
+        this.OS = this.searchString(this.dataOS) || "an unknown OS";
+      },
+      searchString: function (data) {
+        for (var i=0;i<data.length;i++) {
+          var dataString = data[i].string;
+          var dataProp = data[i].prop;
+          this.versionSearchString = data[i].versionSearch || data[i].identity;
+          if (dataString) {
+            if (dataString.indexOf(data[i].subString) != -1)
+       return data[i].identity;
+          }
+          else if (dataProp){
+            return data[i].identity;
+          }
+        }
+      },
+      searchVersion: function (dataString) {
+        var index = dataString.indexOf(this.versionSearchString);
+        if (index == -1) return;
+        return parseFloat(dataString.substring(index+this.versionSearchString.length+1));
+        },
+      dataBrowser: [
+      {
+        string: navigator.userAgent,
+        subString: "Chrome",
+        identity: "Chrome"
+      },
+      {
+        string: navigator.userAgent,
+        subString: "OmniWeb",
+        versionSearch: "OmniWeb/",
+        identity: "OmniWeb"
+      },
+      {
+        string: navigator.vendor,
+        subString: "Apple",
+        identity: "Safari",
+        versionSearch: "Version"
+      },
+      {
+        prop: window.opera,
+        identity: "Opera"
+      },
+      {
+        string: navigator.vendor,
+        subString: "iCab",
+        identity: "iCab"
+      },
+      {
+        string: navigator.vendor,
+        subString: "KDE",
+        identity: "Konqueror"
+      },
+      {
+        string: navigator.userAgent,
+        subString: "Firefox",
+        identity: "Firefox"
+      },
+      {
+        string: navigator.vendor,
+        subString: "Camino",
+        identity: "Camino"
+      },
+      { // for newer Netscapes (6+)
+        string: navigator.userAgent,
+        subString: "Netscape",
+        identity: "Netscape"
+      },
+      {
+        string: navigator.userAgent,
+        subString: "MSIE",
+        identity: "Explorer",
+        versionSearch: "MSIE"
+      },
+      {
+        string: navigator.userAgent,
+        subString: "Gecko",
+        identity: "Mozilla",
+        versionSearch: "rv"
+      },
+      { // for older Netscapes (4-)
+        string: navigator.userAgent,
+        subString: "Mozilla",
+        identity: "Netscape",
+        versionSearch: "Mozilla"
+      }
+      ],
+      dataOS : [
+      {
+        string: navigator.platform,
+        subString: "Win",
+        identity: "Windows"
+      },
+      {
+        string: navigator.platform,
+        subString: "Mac",
+        identity: "Mac"
+      },
+      {
+        string: navigator.userAgent,
+        subString: "iPhone",
+        identity: "iPhone/iPod"
+      },
+      {
+        string: navigator.platform,
+        subString: "Linux",
+        identity: "Linux"
+      }
+      ]
+    };
+    BrowserDetect.init();
+
+    //////////////////////////////////////////////////////////////////////////
     // Event handling
     //////////////////////////////////////////////////////////////////////////
 
@@ -7522,14 +7644,29 @@
       return code;
     }
 
+    var keyFunc = function (e, type){
+      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera" || BrowserDetect.browser === "Mozilla"){
+        if(e.keyCode === 16
+        || e.keyCode === 17
+        || e.keyCode === 18
+        || e.keyCode === 144
+        || (e.keyCode === 0 && e.charCode === null)){
+          type();
+        }
+      }
+      else{ type(); }
+    }
+
     attach(document, "keydown", function(e) {
-      p.__keyPressed = true;
+      keyPressed = true;
       p.keyCode = null;
       p.key = keyCodeMap(e.keyCode, e.shiftKey);
 
       if (typeof p.keyPressed === "function") {
-        p.keyPressed();
-      } 
+        keyFunc(e, p.keyPressed);
+      } else {
+        p.keyPressed = true;
+      }
     });
 
     attach(document, "keyup", function(e) {
@@ -7537,23 +7674,22 @@
       p.key = keyCodeMap(e.keyCode, e.shiftKey);
 
       //TODO: This needs to only be made false if all keys have been released.
-      p.__keyPressed = false;
-
-      if (typeof p.keyReleased === "function") {
-        p.keyReleased();
+      keyPressed = false;
+      if (typeof p.keyPressed !== "function") {
+        p.keyPressed = false;
+      }
+      if (p.keyReleased) {
+        keyFunc(e, p.keyReleased);
       }
     });
 
     attach(document, "keypress", function (e) {
-      // In Firefox, e.keyCode is not currently set with keypress.
-      //
-      // keypress will always happen after a keydown, so p.keyCode and p.key
-      // should remain correct. Some browsers (chrome) refire keydown when
-      // key repeats happen, others (firefox) don't. Either way keyCode and
-      // key should remain correct.
+      if(BrowserDetect.browser === "Firefox" || BrowserDetect.browser === "Opera" || BrowserDetect.browser === "Mozilla"){
+        if(!(e.keyCode === 144 || e.keyCode === 20 || (e.keyCode === 0 && e.charCode === null))){ p.keyPressed(); }
+      }
       
       if (p.keyTyped) {
-        p.keyTyped();
+        keyFunc(e, p.keyTyped);
       }
     });
 
