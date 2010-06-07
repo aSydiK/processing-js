@@ -4,7 +4,8 @@
 var __empty_func__ = function () {};
 var __elem_func__ = function() { return elem };
 
-var navigator = { useragent: true };
+var navigator = { userAgent: "",
+                  appVersion: "" };
 
 var canvas = {
   setAttribute: __empty_func__,
