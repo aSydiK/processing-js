@@ -215,10 +215,8 @@
     CORNER:          0, // Draw mode convention to use (x, y) to (width, height)
     CORNERS:         1, // Draw mode convention to use (x1, y1) to (x2, y2) coordinates
     RADIUS:          2, // Draw mode from the center, and using the radius
-    CENTER_RADIUS:   2, // Deprecated! Use RADIUS instead
     CENTER:          3, // Draw from the center, using second pair of values as the diameter
     DIAMETER:        3, // Synonym for the CENTER constant. Draw from the center
-    CENTER_DIAMETER: 3, // Deprecated! Use DIAMETER instead
 
     // Text vertical alignment modes
     BASELINE: 0,   // Default vertical alignment for text placement
@@ -8269,7 +8267,7 @@
 
       curContext.moveTo(x, y);
       curContext.beginPath();
-      curContext.arc(x, y, curEllipseMode === PConstants.CENTER_RADIUS ? width : width / 2, start, stop, false);
+      curContext.arc(x, y, curEllipseMode === PConstants.RADIUS ? width : width / 2, start, stop, false);
 
       executeContextStroke();
       curContext.lineTo(x, y);
