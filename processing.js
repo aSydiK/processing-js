@@ -1057,6 +1057,7 @@
         strokeColorBuffer,
         pointBuffer,
         shapeTexVBO,
+        canTex,   // texture for createGraphics
         curTexture = {width:0,height:0},
         curTextureMode = PConstants.IMAGE,
         usingTexture = false,
@@ -1067,6 +1068,7 @@
         horizontalTextAlignment = PConstants.LEFT,
         verticalTextAlignment = PConstants.BASELINE,
         baselineOffset = 0.2, // percent 
+        tMode = PConstants.MODEL,
         // Pixels cache
         originalContext,
         proxyContext = null,
@@ -1967,7 +1969,8 @@
       this.pre = function() {
         if (this.matrix) {
           p.pushMatrix();
-          //this.applyMatrix( this.matrix ); //applyMatrix missing
+          curContext.transform(this.matrix.elements[0], this.matrix.elements[3], this.matrix.elements[1], this.matrix.elements[4], this.matrix.elements[2], this.matrix.elements[5]);
+          //p.applyMatrix(this.matrix.elements[0],this.matrix.elements[0]); 
         }
         if (this.style) {
           p.pushStyle();
@@ -1994,6 +1997,7 @@
 
         if (this.fill) {
           p.fill(this.fillColor);
+          
         } else {
           p.noFill();
         }
@@ -2046,7 +2050,6 @@
           this.nameTable.push( [name, shape] );
         }
       };
-      // findChild not in yet
       this.translate = function() {
         if(arguments.length === 2)
         {
@@ -2102,11 +2105,33 @@
         this.checkMatrix(2);
         this.matrix.reset();
       };
-      // applyMatrix missing
+      this.applyMatrix = function(matrix) {
+        if (arguments.length === 1) {
+          this.applyMatrix(matrix.elements[0], matrix.elements[1], 0, matrix.elements[2],
+                          matrix.elements[3], matrix.elements[4], 0, matrix.elements[5],
+                          0, 0, 1, 0,
+                          0, 0, 0, 1);
+        } else if (arguments.length === 6) {
+          this.checkMatrix(2);
+          this.matrix.apply(arguments[0], arguments[1], arguments[2], 0,
+                            arguments[3], arguments[4], arguments[5], 0,
+                            0,   0,   1,   0,
+                            0,   0,   0,   1);
+        
+        } else if (arguments.length === 16) {
+          this.checkMatrix(3);
+          this.matrix.apply(arguments[0], arguments[1], arguments[2], arguments[3],
+                            arguments[4], arguments[5], arguments[6], arguments[7],
+                            arguments[8], arguments[9], arguments[10], arguments[11],
+                            arguments[12], arguments[13], arguments[14], arguments[15]);
+        }
+      };
+      // findChild not in yet
       // apply missing
       // contains missing
       // find child missing
       // getPrimitive missing
+      // getParams missing
       // getVertex , getVertexCount missing
       // getVertexCode , getVertexCodes , getVertexCodeCount missing
       // getVertexX, getVertexY, getVertexZ missing
@@ -2239,10 +2264,57 @@
     };
         
     PShapeSVG.prototype = {
-      // parseMatrix missing
       // getChild missing
       // print missing
-      parseMatrix: function(str) { },
+      // parse style attributes
+      // styles missing but deals with strokeGradient and fillGradient
+      parseMatrix: function(str) {
+        this.checkMatrix(2);
+        var pieces = []; 
+        str.replace(/\s*(\w+)\((.*?)\)/g, function(all) {
+          // get a list of transform definitions
+          pieces.push(p.trim(all));
+        });
+        if (pieces.length === 0) {
+          p.println("Transformation:" + str + " is empty");
+          return null;
+        }
+        for (var i =0; i< pieces.length; i++) {
+          var m = [];
+          pieces[i].replace(/\((.*?)\)/, (function() {
+            return function(all, params) {
+              // get the coordinates that can be separated by spaces or a comma
+              m = params.replace(/,+/g, " ").split(/\s+/);
+            };
+          }())); 
+          
+          if (pieces[i].indexOf("matrix") !== -1) {
+            this.matrix.set(m[0], m[2], m[4], m[1], m[3], m[5]);
+          } else if (pieces[i].indexOf("translate") !== -1) {
+            var tx = m[0];
+            var ty = (m.length === 2) ? m[1] : 0;
+            this.matrix.translate(tx,ty);
+          } else if (pieces[i].indexOf("scale") !== -1) {
+            var sx = m[0];
+            var sy = (m.length === 2) ? m[1] : m[0];
+            this.matrix.scale(sx,sy);
+          } else if (pieces[i].indexOf("rotate") !== -1) {
+            var angle = m[0];
+            if (m.length === 1) {
+              this.matrix.rotate(p.radians(angle));
+            } else if (m.length === 3) {
+              this.matrix.translate(m[1], m[2]);
+              this.matrix.rotate(p.radians(m[0]));
+              this.matrix.translate(-m[1], -m[2]);     
+            }
+          } else if (pieces[i].indexOf("skewX") !== -1) {
+            this.matrix.skewX(parseFloat(m[0]));
+          } else if (pieces[i].indexOf("skewY") !== -1) {
+            this.matrix.skewY(m[0]);
+          }
+        }
+        return this.matrix;
+      },
       parseChildren:function(element) {
         var newelement = element.getChildren();
         var children   = new p.PShape();
@@ -2318,63 +2390,14 @@
         }
         return shape;
       },
-      parsePath: function(){
+      parsePath: function() {
         this.family = PConstants.PATH;
         this.kind = 0;
-         
+        var pathDataChars = [];
         var c;
-        var pathData = p.trim(this.element.getStringAttribute("d").replace(/\s+/g,' '));
+        var pathData = p.trim(this.element.getStringAttribute("d").replace(/[\s,]+/g,' ')); //change multiple spaces and commas to single space
         if (pathData === null) { return; }
-        var pathDataChars = pathData.toCharArray();
-
-        var pathBuffer = "";
-        var lastSeparate = false;
-
-        for (var i = 0; i < pathDataChars.length; i++) {
-          c = pathDataChars[i].toString();
-          var separate = false;
-
-          if (c === "M" || c === 'm' ||
-              c === 'L' || c === 'l' ||
-              c === 'H' || c === 'h' ||
-              c === 'V' || c === 'v' ||
-              c === 'C' || c === 'c' ||  // beziers
-              c === 'S' || c === 's' ||
-              c === 'Q' || c === 'q' ||  // quadratic beziers
-              c === 'T' || c === 't' ||
-              c === 'Z' || c === 'z' ||  // closepath
-              c === ',') {
-            separate = true;
-            if (i !== 0 ) {
-              pathBuffer +="|";
-            }
-          }
-          if (c === 'Z' || c === 'z') {
-            separate = false;
-          }
-          if (c === '-' && !lastSeparate) {
-            // allow for 'e' notation in numbers, e.g. 2.10e-9 
-            // http://dev.processing.org/bugs/show_bug.cgi?id=1408
-            if (i === 0 || pathDataChars[i-1] !== 'e') {
-              pathBuffer +="|";
-            }
-          }
-          if (c !== ',') {
-            pathBuffer += c; //"" + pathDataBuffer.charAt(i));
-          }
-          if (separate && c !== ',' && c !== '-') {
-            pathBuffer +="|";
-          }
-          lastSeparate = separate;
-        }
-        // split into array
-        var pathDataKeys = pathBuffer.toString().split(/[|\s+]/g);
-        // loop through the array and remove spaces
-        for(i =0; i < pathDataKeys.length; i++){
-          if (pathDataKeys[i] === ""){
-            pathDataKeys.splice(i, 1);
-          }
-        }  
+        pathData = pathData.toCharArray();
         var cx     = 0,
             cy     = 0,
             ctrlX  = 0,
@@ -2388,234 +2411,339 @@
             ppx    = 0,
             ppy    = 0,
             px     = 0,
-            py     = 0;  
-
-        i = 0;
-        while (i < pathDataKeys.length) {
-          c = p.trim(pathDataKeys[i].charAt(0 ));
-          switch (c) {
-
-            case 'M':  // M - move to (absolute)
-              cx = parseFloat(pathDataKeys[i + 1]);
-              cy = parseFloat(pathDataKeys[i + 2]);
-              this.parsePathMoveto(cx, cy);
-              i += 3;
-              break;
-
-            case 'm':  // m - move to (relative)
-              cx = parseFloat(cx)+ parseFloat(pathDataKeys[i + 1]);
-              cy = parseFloat(cy)+ parseFloat(pathDataKeys[i + 2]);
-              this.parsePathMoveto(cx, cy);
-              i += 3;
-              break;
-
-            case 'L':
-              cx = parseFloat(pathDataKeys[i + 1]);
-              cy = parseFloat(pathDataKeys[i + 2]);
-              this.parsePathLineto(cx, cy);
-              i += 3;
-              break;
-
-            case 'l':
-              cx = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              cy = parseFloat(cy) + parseFloat(pathDataKeys[i + 2]);
-              this.parsePathLineto(cx, cy);
-              i += 3;
-              break;
-
-              // horizontal lineto absolute
-            case 'H':
-              cx = parseFloat(pathDataKeys[i + 1]);
-              this.parsePathLineto(cx, cy);
-              i += 2;
-              break;
-
-              // horizontal lineto relative
-            case 'h':
-              cx = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              this.parsePathLineto(cx, cy);
-              i += 2;
-              break;
-
-            case 'V':
-              cy = parseFloat(pathDataKeys[i + 1]);
-              this.parsePathLineto(cx, cy);
-              i += 2;
-              break;
-
-            case 'v':
-              cy = parseFloat(cy) + parseFloat(pathDataKeys[i + 1]);
-              this.parsePathLineto(cx, cy);
-              i += 2;
-              break;
-
-              // C - curve to (absolute)
-            case 'C': 
-              ctrlX1 = parseFloat(pathDataKeys[i + 1]);
-              ctrlY1 = parseFloat(pathDataKeys[i + 2]);
-              ctrlX2 = parseFloat(pathDataKeys[i + 3]);
-              ctrlY2 = parseFloat(pathDataKeys[i + 4]);
-              endX   = parseFloat(pathDataKeys[i + 5]);
-              endY   = parseFloat(pathDataKeys[i + 6]);
-              this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 7;
-              break;
-
-            // c - curve to (relative)
-            case 'c': 
-              ctrlX1 = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              ctrlY1 = parseFloat(cy) + parseFloat(pathDataKeys[i + 2]);
-              ctrlX2 = parseFloat(cx) + parseFloat(pathDataKeys[i + 3]);
-              ctrlY2 = parseFloat(cy) + parseFloat(pathDataKeys[i + 4]);
-              endX   = parseFloat(cx) + parseFloat(pathDataKeys[i + 5]);
-              endY   = parseFloat(cy) + parseFloat(pathDataKeys[i + 6]);
-              this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 7;
-              break;
-
-              // S - curve to shorthand (absolute)
-            case 'S': 
-              ppx    = parseFloat(this.vertices[ this.vertices.length-2 ][0]);
-              ppy    = parseFloat(this.vertices[ this.vertices.length-2 ][1]);
-              px     = parseFloat(this.vertices[ this.vertices.length-1 ][0]);
-              py     = parseFloat(this.vertices[ this.vertices.length-1 ][1]);
-              ctrlX1 = px + (px - ppx);
-              ctrlY1 = py + (py - ppy);
-              ctrlX2 = parseFloat(pathDataKeys[i + 1]);
-              ctrlY2 = parseFloat(pathDataKeys[i + 2]);
-              endX   = parseFloat(pathDataKeys[i + 3]);
-              endY   = parseFloat(pathDataKeys[i + 4]);
-              this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 5;
-              break;
-
-              // s - curve to shorthand (relative)
-            case 's': 
-              ppx    = parseFloat(this.vertices[this.vertices.length-2][0]);
-              ppy    = parseFloat(this.vertices[this.vertices.length-2][1]);
-              px     = parseFloat(this.vertices[this.vertices.length-1][0]);
-              py     = parseFloat(this.vertices[this.vertices.length-1][1]);
-              ctrlX1 = px + (px - ppx);
-              ctrlY1 = py + (py - ppy);
-              ctrlX2 = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              ctrlY2 = parseFloat(cy) + parseFloat(pathDataKeys[i + 2]);
-              endX   = parseFloat(cx) + parseFloat(pathDataKeys[i + 3]);
-              endY   = parseFloat(cy) + parseFloat(pathDataKeys[i + 4]);
-              this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 5;
-              break;
-
-              // Q - quadratic curve to (absolute)
-            case 'Q': 
-              ctrlX = parseFloat(pathDataKeys[i + 1]);
-              ctrlY = parseFloat(pathDataKeys[i + 2]);
-              endX  = parseFloat(pathDataKeys[i + 3]);
-              endY  = parseFloat(pathDataKeys[i + 4]);
-              this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 5;
-              break;
-
-              // q - quadratic curve to (relative)
-            case 'q': 
-              ctrlX = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              ctrlY = parseFloat(cy) + parseFloat(pathDataKeys[i + 2]);
-              endX  = parseFloat(cx) + parseFloat(pathDataKeys[i + 3]);
-              endY  = parseFloat(cy) + parseFloat(pathDataKeys[i + 4]);
-              this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 5;
-              break;
-
-              // T - quadratic curve to shorthand (absolute)
-              // The control point is assumed to be the reflection of the
-              // control point on the previous command relative to the
-              // current point. (If there is no previous command or if the
-              // previous command was not a Q, q, T or t, assume the control
-              // point is coincident with the current point.)
-            case 'T': 
-              ppx   = this.vertices[this.vertices.length-2][0];
-              ppy   = this.vertices[this.vertices.length-2][1];
-              px    = this.vertices[this.vertices.length-1][0];
-              py    = this.vertices[this.vertices.length-1][1];
-              ctrlX = px + (px - ppx);
-              ctrlY = py + (py - ppy);
-              endX  = parseFloat(pathDataKeys[i + 1]);
-              endY  = parseFloat(pathDataKeys[i + 2]);
-              this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 3;
-              break;
-
-              // t - quadratic curve to shorthand (relative)
-            case 't': 
-              ppx   = this.vertices[this.vertices.length-2][0];
-              ppy   = this.vertices[this.vertices.length-2][1];
-              px    = this.vertices[this.vertices.length-1][0];
-              py    = this.vertices[this.vertices.length-1][1];
-              ctrlX = px + (px - ppx);
-              ctrlY = py + (py - ppy);
-              endX  = parseFloat(cx) + parseFloat(pathDataKeys[i + 1]);
-              endY  = parseFloat(cy) + parseFloat(pathDataKeys[i + 2]);
-              this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
-              cx = endX;
-              cy = endY;
-              i += 3;
-              break;
-
-            case 'Z':
-            case 'z':
-              this.close = true;
-              i++;
-              break;
-
-            default:
-              i++;
-              /*String parsed =
-                PApplet.join(PApplet.subset(pathDataKeys, 0, i), ",");
-              String unparsed =
-                PApplet.join(PApplet.subset(pathDataKeys, i), ",");
-              System.err.println("parsed: " + parsed);
-              System.err.println("unparsed: " + unparsed);
-              if (pathDataKeys[i].equals("a") || pathDataKeys[i].equals("A")) {
-                String msg = "Sorry, elliptical arc support for SVG files " +
-                  "is not yet implemented (See bug #996 for details)";
-                throw new RuntimeException(msg);
+            py     = 0,
+            i      = 0,
+            j      = 0, 
+            valOf  = 0;
+        var str = "";
+        var tmpArray =[];
+        var flag = false;
+        var lastInstruction;
+        var command;
+        while (i< pathData.length) {
+          valOf = pathData[i].valueOf();
+          if ((valOf >= 65 && valOf <= 90) || (valOf >= 97 && valOf <= 122)) { // if its a letter
+            // populate the tmpArray with coordinates
+            j = i;
+            i++;
+            if (i < pathData.length) { // dont go over boundary of array
+              tmpArray = []; 
+              valOf = pathData[i].valueOf();
+              while (!((valOf >= 65 && valOf <= 90) || (valOf >= 97 && valOf <= 100) || (valOf >= 102 && valOf <= 122)) && flag === false) { // if its NOT a letter
+                if (valOf === 32) { //if its a space and the str isn't empty
+                  // somethimes you get a space after the letter
+                  if (str !== "") {
+                    tmpArray.push(parseFloat(str));
+                    str = "";
+                  }
+                  i++;
+                } else if (valOf === 45) { //if its a -
+                  // allow for 'e' notation in numbers, e.g. 2.10e-9 
+                  if (pathData[i-1].valueOf() === 101) {
+                    str += pathData[i].toString();
+                    i++;
+                  } else {
+                    // sometimes no space separator after (ex: 104.535-16.322)
+                    if (str !== "") {
+                      tmpArray.push(parseFloat(str));
+                    }
+                    str = pathData[i].toString();
+                    i++;
+                  }
+                } else {
+                  str += pathData[i].toString();
+                  i++;
+                } 
+                if (i === pathData.length) { // dont go over boundary of array
+                  flag = true;
+                } else {
+                  valOf = pathData[i].valueOf();
+                }
               }
-              throw new RuntimeException("shape command not handled: " + pathDataKeys[i]);
-            }*/
-          }
-        }
+            }
+            if (str !== "") {
+              tmpArray.push(parseFloat(str));
+              str = "";
+            }
+            command = pathData[j];
+            switch (command.valueOf()) {
+              case 77:  // M - move to (absolute)         
+                if (tmpArray.length >= 2 && tmpArray.length % 2 ===0) { // need one+ pairs of co-ordinates
+                  cx = tmpArray[0];
+                  cy = tmpArray[1];
+                  this.parsePathMoveto(cx, cy);
+                  if (tmpArray.length > 2) {
+                    for (j = 2; j < tmpArray.length; j+=2) {
+                      // absolute line to 
+                      cx = tmpArray[j];
+                      cy = tmpArray[j+1];
+                      this.parsePathLineto(cx,cy);
+                    }
+                  }
+                }
+                break;
+              case 109:  // m - move to (relative)
+                if (tmpArray.length >= 2 && tmpArray.length % 2 === 0) { // need one+ pairs of co-ordinates
+                  this.parsePathMoveto(cx,cy);
+                  if (tmpArray.length > 2) {
+                    for (j = 2; j < tmpArray.length; j+=2) {
+                      // relative line to 
+                      cx += tmpArray[j];
+                      cy += tmpArray[j + 1];
+                      this.parsePathLineto(cx,cy);
+                    }
+                  }
+                }
+                break;
+              case 76: // L - lineto (absolute)
+              if (tmpArray.length >= 2 && tmpArray.length % 2 === 0) { // need one+ pairs of co-ordinates
+                for (j = 0; j < tmpArray.length; j+=2) {
+                  cx = tmpArray[j];
+                  cy = tmpArray[j + 1];
+                  this.parsePathLineto(cx,cy);
+                }
+              }
+              break;
+
+              case 108: // l - lineto (relative)
+                if (tmpArray.length >= 2 && tmpArray.length % 2 === 0) { // need one+ pairs of co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=2) {
+                    cx += tmpArray[j];
+                    cy += tmpArray[j+1];
+                    this.parsePathLineto(cx,cy);
+                  }
+                }
+                break;
+              
+              case 72: // H - horizontal lineto (absolute)
+                for (j = 0; j < tmpArray.length; j++) { // multiple x co-ordinates can be provided
+                  cx = tmpArray[j];
+                  this.parsePathLineto(cx, cy);
+                }
+                break;
+              
+              case 104: // h - horizontal lineto (relative)
+                for (j = 0; j < tmpArray.length; j++) { // multiple x co-ordinates can be provided
+                  cx += tmpArray[j];
+                  this.parsePathLineto(cx, cy);
+                }
+                break;
+
+              case 86: // V - vertical lineto (absolute)
+                for (j = 0; j < tmpArray.length; j++) { // multiple y co-ordinates can be provided
+                  cy = tmpArray[j];
+                  this.parsePathLineto(cx, cy);
+                }
+                break;
+
+              case 118: // v - vertical lineto (relative)
+                for (j = 0; j < tmpArray.length; j++) { // multiple y co-ordinates can be provided
+                  cy += tmpArray[j];
+                  this.parsePathLineto(cx, cy);
+                }
+                break;
+                
+              case 67: // C - curve to (absolute)
+                if (tmpArray.length >= 6 && tmpArray.length % 6 === 0) { // need one+ multiples of 6 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=6) {
+                    ctrlX1 = tmpArray[j];
+                    ctrlY1 = tmpArray[j + 1];
+                    ctrlX2 = tmpArray[j + 2];
+                    ctrlY2 = tmpArray[j + 3];
+                    endX   = tmpArray[j + 4];
+                    endY   = tmpArray[j + 5];
+                    this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+             
+              case 99: // c - curve to (relative)
+                if (tmpArray.length >= 6 && tmpArray.length % 6 === 0) { // need one+ multiples of 6 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=6) {
+                    ctrlX1 = cx + tmpArray[j];
+                    ctrlY1 = cy + tmpArray[j + 1];
+                    ctrlX2 = cx + tmpArray[j + 2];
+                    ctrlY2 = cy + tmpArray[j + 3];
+                    endX   = cx + tmpArray[j + 4];
+                    endY   = cy + tmpArray[j + 5];
+                    this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+              
+              case 83: // S - curve to shorthand (absolute)
+                if (tmpArray.length >= 4 && tmpArray.length % 4 === 0) { // need one+ multiples of 4 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=4) {
+                    if (lastInstruction.toLowerCase() ===  "c" || lastInstruction.toLowerCase() ===  "s") {
+                      ppx    = this.vertices[ this.vertices.length-2 ][0];
+                      ppy    = this.vertices[ this.vertices.length-2 ][1];
+                      px     = this.vertices[ this.vertices.length-1 ][0];
+                      py     = this.vertices[ this.vertices.length-1 ][1];
+                      ctrlX1 = px + (px - ppx);
+                      ctrlY1 = py + (py - ppy);
+                    } else {
+                      //If there is no previous curve, the current point will be used as the first control point.
+                      ctrlX1 = this.vertices[this.vertices.length-1][0];
+                      ctrlY1 = this.vertices[this.vertices.length-1][1]; 
+                    }
+                    ctrlX2 = tmpArray[j];
+                    ctrlY2 = tmpArray[j + 1];
+                    endX   = tmpArray[j + 2];
+                    endY   = tmpArray[j + 3];
+                    this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+                
+              case 115: // s - curve to shorthand (relative)
+                if (tmpArray.length >= 4 && tmpArray.length % 4 === 0) { // need one+ multiples of 4 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=4) {
+                    if (lastInstruction.toLowerCase() ===  "c" || lastInstruction.toLowerCase() ===  "s") {
+                      ppx    = this.vertices[this.vertices.length-2][0];
+                      ppy    = this.vertices[this.vertices.length-2][1];
+                      px     = this.vertices[this.vertices.length-1][0];
+                      py     = this.vertices[this.vertices.length-1][1];
+                      ctrlX1 = px + (px - ppx);
+                      ctrlY1 = py + (py - ppy);
+                    } else {
+                      //If there is no previous curve, the current point will be used as the first control point.
+                      ctrlX1 = this.vertices[this.vertices.length-1][0];
+                      ctrlY1 = this.vertices[this.vertices.length-1][1]; 
+                    } 
+                    ctrlX2 = cx + tmpArray[j];
+                    ctrlY2 = cy + tmpArray[j + 1];
+                    endX   = cx + tmpArray[j + 2];
+                    endY   = cy + tmpArray[j + 3];
+                    this.parsePathCurveto(ctrlX1, ctrlY1, ctrlX2, ctrlY2, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+               
+              case 81: // Q - quadratic curve to (absolute)
+                if (tmpArray.length >= 4 && tmpArray.length % 4 === 0) { // need one+ multiples of 4 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=4) {
+                    ctrlX = tmpArray[j];
+                    ctrlY = tmpArray[j + 1];
+                    endX  = tmpArray[j + 2];
+                    endY  = tmpArray[j + 3];
+                    this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+                
+              case 113: // q - quadratic curve to (relative)
+                if (tmpArray.length >= 4 && tmpArray.length % 4 === 0) { // need one+ multiples of 4 co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=4) {
+                    ctrlX = cx + tmpArray[j];
+                    ctrlY = cy + tmpArray[j + 1];
+                    endX  = cx + tmpArray[j + 2];
+                    endY  = cy + tmpArray[j + 3];
+                    this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+
+              case 84: // T - quadratic curve to shorthand (absolute)
+                if (tmpArray.length >= 2 && tmpArray.length % 2 === 0) { // need one+ pairs of co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=2) {
+                    if (lastInstruction.toLowerCase() ===  "q" || lastInstruction.toLowerCase() ===  "t") {
+                      ppx   = this.vertices[this.vertices.length-2][0];
+                      ppy   = this.vertices[this.vertices.length-2][1];
+                      px    = this.vertices[this.vertices.length-1][0];
+                      py    = this.vertices[this.vertices.length-1][1];
+                      ctrlX = px + (px - ppx);
+                      ctrlY = py + (py - ppy);
+                    } else {
+                      // If there is no previous command or if the previous command was not a Q, q, T or t, 
+                      // assume the control point is coincident with the current point.
+                      ctrlX = cx;
+                      ctrlY = cy;
+                    }  
+                    endX  = tmpArray[j];
+                    endY  = tmpArray[j + 1];
+                    this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+               
+              case 116:  // t - quadratic curve to shorthand (relative)
+                if (tmpArray.length >= 2 && tmpArray.length % 2 === 0) { // need one+ pairs of co-ordinates
+                  for (j = 0; j < tmpArray.length; j+=2) {
+                    if (lastInstruction.toLowerCase() ===  "q" || lastInstruction.toLowerCase() ===  "t") {
+                      ppx   = this.vertices[this.vertices.length-2][0];
+                      ppy   = this.vertices[this.vertices.length-2][1];
+                      px    = this.vertices[this.vertices.length-1][0];
+                      py    = this.vertices[this.vertices.length-1][1];
+                      ctrlX = px + (px - ppx);
+                      ctrlY = py + (py - ppy);
+                    } else {
+                      // If there is no previous command or if the previous command was not a Q, q, T or t, 
+                      // assume the control point is coincident with the current point.
+                      ctrlX = cx;
+                      ctrlY = cy;
+                    }
+                    endX  = cx + tmpArray[j];
+                    endY  = cy + tmpArray[j + 1];
+                    this.parsePathQuadto(cx, cy, ctrlX, ctrlY, endX, endY);
+                    cx = endX;
+                    cy = endY;
+                  }
+                }
+                break;
+
+              case 90: //Z
+              case 122: //z
+                this.close = true;
+                break;           
+            } 
+            lastInstruction = command.toString();
+          } else { i++;}  
+        }  
       },
       parsePathQuadto: function(x1, y1, cx, cy, x2, y2) {
-        this.parsePathCode(PConstants.BEZIER_VERTEX);
-        // x1/y1 already covered by last moveto, lineto, or curveto
-        this.parsePathVertex(x1 + ((cx-x1)*2/3), y1 + ((cy-y1)*2/3));
-        this.parsePathVertex(x2 + ((cx-x2)*2/3), y2 + ((cy-y2)*2/3));
-        this.parsePathVertex(x2, y2);
+        if (this.vertices.length > 0) {
+          this.parsePathCode(PConstants.BEZIER_VERTEX);
+          // x1/y1 already covered by last moveto, lineto, or curveto
+          this.parsePathVertex(x1 + ((cx-x1)*2/3), y1 + ((cy-y1)*2/3));
+          this.parsePathVertex(x2 + ((cx-x2)*2/3), y2 + ((cy-y2)*2/3));
+          this.parsePathVertex(x2, y2);
+        } else {
+          throw ("Path must start with M/m");
+        }
       },
       parsePathCurveto : function(x1,  y1, x2, y2, x3, y3) {
-        this.parsePathCode(PConstants.BEZIER_VERTEX );
-        this.parsePathVertex(x1, y1);
-        this.parsePathVertex(x2, y2);
-        this.parsePathVertex(x3, y3);
+        if (this.vertices.length > 0) {
+          this.parsePathCode(PConstants.BEZIER_VERTEX );
+          this.parsePathVertex(x1, y1);
+          this.parsePathVertex(x2, y2);
+          this.parsePathVertex(x3, y3);
+        } else {
+          throw ("Path must start with M/m");
+        }
       },
       parsePathLineto: function(px, py) {
-        this.parsePathCode(PConstants.VERTEX);
-        this.parsePathVertex(px, py);
-        // add property to distinguish between curContext.moveTo or curContext.lineTo
-        this.vertices[this.vertices.length-1]["moveTo"] = false;
+        if (this.vertices.length > 0) {
+          this.parsePathCode(PConstants.VERTEX);
+          this.parsePathVertex(px, py);
+          // add property to distinguish between curContext.moveTo or curContext.lineTo
+          this.vertices[this.vertices.length-1]["moveTo"] = false;
+        } else {
+          throw ("Path must start with M/m");
+        }
       },
       parsePathMoveto: function(px, py) {
         if (this.vertices.length > 0) {
@@ -2727,7 +2855,9 @@
                 this.setFill(tokens[1]);
                 break;
               case "fill-opacity":
+              
                 this.setFillOpacity(tokens[1]);
+                
                 break;
               case "stroke":
                 this.setStroke(tokens[1]);
@@ -2754,7 +2884,7 @@
       },
       setFillOpacity: function(opacityText) {
         this.fillOpacity = parseFloat(opacityText);
-        this.fillColor   = (parseInt(this.fillOpacity * 255, 16))  << 24 | this.fillColor & 0xFFFFFF;
+        this.fillColor   = this.fillOpacity * 255  << 24 | this.fillColor & 0xFFFFFF;
       },
       setFill: function (fillText) {
         var opacityMask = this.fillColor & 0xFF000000;
@@ -2784,8 +2914,8 @@
         }
       },
       setOpacity: function(opacity) { 
-        this.strokeColor = (parseInt(opacity * 255, 16)) << 24 | this.strokeColor & 0xFFFFFF;
-        this.fillColor   = (parseInt(opacity * 255, 16)) << 24 | this.fillColor & 0xFFFFFF;
+        this.strokeColor = parseFloat(opacity) * 255 << 24 | this.strokeColor & 0xFFFFFF;
+        this.fillColor   = parseFloat(opacity) * 255 << 24 | this.fillColor & 0xFFFFFF;
       },
       setStroke: function(strokeText) {
         var opacityMask = this.strokeColor & 0xFF000000;
@@ -2840,7 +2970,7 @@
       },
       setStrokeOpacity: function (opacityText) {
         this.strokeOpacity = parseFloat(opacityText);
-        this.strokeColor   = (parseInt(this.strokeOpacity * 255, 16)) << 24 | this.strokeColor & 0xFFFFFF;
+        this.strokeColor   = this.strokeOpacity * 255 << 24 | this.strokeColor & 0xFFFFFF;
       },
       parseRGB: function(color) {
         var sub    = color.substring(color.indexOf('(') + 1, color.indexOf(')'));
@@ -3106,7 +3236,7 @@
       },
       getFloatAttribute: function() {
         if (arguments.length === 1 ) {
-          return this.getAttribute(arguments[0], 0);
+          return parseFloat(this.getAttribute(arguments[0], 0));
         } else if (arguments.length === 2 ){
           return this.getAttribute(arguments[0], arguments[1]);
         } else {
@@ -3434,7 +3564,7 @@
         this.apply(1, 0, 1, angle, 0, 0);
       },
       skewY: function(angle) {
-        this.apply(1, 0, 1, 0, angle, 0);
+        this.apply(1, 0, 1,  0, angle, 0);        
       },
       determinant: function() {
         return (this.elements[0] * this.elements[4] - this.elements[1] * this.elements[3]);
@@ -4729,8 +4859,12 @@
     };
 
     p.resetMatrix = function resetMatrix() {
-      forwardTransform.reset();
-      reverseTransform.reset();
+      if (p.use3DContext) {
+        forwardTransform.reset();
+        reverseTransform.reset();
+      } else {
+        curContext.setTransform(1,0,0,1,0,0);
+      }
     };
 
     p.applyMatrix = function applyMatrix() {
@@ -6112,6 +6246,7 @@
           }
           curContext = curElement.getContext("experimental-webgl");
           p.use3DContext = true;
+          canTex = curContext.createTexture(); // texture
         } catch(e_size) {
           Processing.debug(e_size);
         }
@@ -6215,7 +6350,7 @@
           p.perspective();
           forwardTransform = modelView;
           reverseTransform = modelViewInv;
-
+          
           userMatrixStack = new PMatrixStack();
           // used by both curve and bezier, so just init here
           curveBasisMatrix = new PMatrix3D();
@@ -6272,11 +6407,8 @@
           var c = document.createElement("canvas");
           var ctx = c.getContext("2d");          
           var obj = ctx.createImageData(this.width, this.height);
-          var uBuff = curContext.readPixels(0,0,this.width,this.height,curContext.RGBA,curContext.UNSIGNED_BYTE);
-          if(!uBuff){
-            uBuff = new Uint8Array(this.width * this.height * 4);
-            curContext.readPixels(0,0,this.width,this.height,curContext.RGBA,curContext.UNSIGNED_BYTE, uBuff);
-          }
+          var uBuff = new Uint8Array(this.width * this.height * 4);
+          curContext.readPixels(0,0,this.width,this.height,curContext.RGBA,curContext.UNSIGNED_BYTE, uBuff);
           for(var i =0; i < uBuff.length; i++){
             obj.data[i] = uBuff[(this.height - 1 - Math.floor(i / 4 / this.width)) * this.width * 4 + (i % (this.width * 4))];
           }
@@ -6578,7 +6710,6 @@
         // Modeling transformation
         var model = new PMatrix3D();
         model.scale(w, h, d);
-        model.transpose();
 
         // viewing transformation needs to have Y flipped
         // becuase that's what Processing does.
@@ -6620,6 +6751,7 @@
           var normalMatrix = new PMatrix3D();
           normalMatrix.set(v);
           normalMatrix.invert();
+          normalMatrix.transpose();
 
           uniformMatrix(programObject3D, "normalTransform", false, normalMatrix.array());
 
@@ -6818,6 +6950,7 @@
           var normalMatrix = new PMatrix3D();
           normalMatrix.set(v);
           normalMatrix.invert();
+          normalMatrix.transpose();
 
           curContext.useProgram(programObject3D);
           disableVertexAttribPointer(programObject3D, "aTexture");
@@ -7416,7 +7549,7 @@
     };
 
     p.endShape = function endShape(mode){
-      var closeShape = mode === p.CLOSE;
+      var closeShape = mode === PConstants.CLOSE;
       var lineVertArray = [];
       var fillVertArray = [];
       var colorVertArray = [];
@@ -7503,6 +7636,10 @@
               b[3] = [vertArray[i+1][0], vertArray[i+1][1]];
               curContext.bezierCurveTo(b[1][0], b[1][1], b[2][0], b[2][1], b[3][0], b[3][1]);
             }
+            // close the shape
+            if (closeShape) {
+              curContext.lineTo(vertArray[0][0], vertArray[0][1]);
+            }
             executeContextFill();
             executeContextStroke();
             curContext.closePath();
@@ -7567,6 +7704,10 @@
             } else { //otherwise continue drawing bezier
               curContext.bezierCurveTo(vertArray[i][0], vertArray[i][1], vertArray[i][2], vertArray[i][3], vertArray[i][4], vertArray[i][5]);
             }
+          }
+          // close the shape
+          if (closeShape) {
+            curContext.lineTo(vertArray[0][0], vertArray[0][1]);
           }
           executeContextFill();
           executeContextStroke();
@@ -7965,7 +8106,15 @@
             curContext.beginPath();
             curContext.moveTo(vertArray[0][0], vertArray[0][1]);
             for (i = 1; i < vertArray.length; i++) {
-              curContext.lineTo(vertArray[i][0], vertArray[i][1]);
+              if (vertArray[i]["isVert"] === true ) { //if it is a vertex move to the position
+                if (vertArray[i]["moveTo"] === true) {
+                  curContext.moveTo(vertArray[i][0], vertArray[i][1]);
+                } else if (vertArray[i]["moveTo"] === false){
+                  curContext.lineTo(vertArray[i][0], vertArray[i][1]);
+                } else {
+                  curContext.lineTo(vertArray[i][0], vertArray[i][1]);
+                } 
+              }
             }
             if (closeShape) {
               curContext.lineTo(vertArray[0][0], vertArray[0][1]);
@@ -8093,8 +8242,14 @@
       executeTexImage2D.apply(this, arguments);
     };
     
-    p.texture = function(pimage){
-      if (!pimage.__texture) {
+    p.texture = function(pimage) {
+      if (pimage.localName === "canvas") {
+        curContext.bindTexture(curContext.TEXTURE_2D, canTex);
+        executeTexImage2D(pimage);
+        curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MAG_FILTER, curContext.LINEAR);
+        curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MIN_FILTER, curContext.LINEAR);
+        curContext.generateMipmap(curContext.TEXTURE_2D);
+      } else if (!pimage.__texture) {
         var texture = curContext.createTexture();
         pimage.__texture = texture;
 
@@ -8105,19 +8260,20 @@
         var textureImage = ctx.createImageData(cvs.width, cvs.height);
 
         var imgData = pimage.toImageData();
-
+        
         for (var i = 0; i < cvs.width; i += 1) {
           for (var j = 0; j < cvs.height; j += 1) {
-            var index = (j * cvs.width + i) * 4;
+          var index = (j * cvs.width + i) * 4;
             textureImage.data[index + 0] = imgData.data[index + 0];
             textureImage.data[index + 1] = imgData.data[index + 1];
             textureImage.data[index + 2] = imgData.data[index + 2];
             textureImage.data[index + 3] = 255;
           }
         }
+        
         ctx.putImageData(textureImage, 0, 0);
         pimage.__cvs = cvs;
-
+        
         curContext.bindTexture(curContext.TEXTURE_2D, pimage.__texture);
         curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MIN_FILTER, curContext.LINEAR_MIPMAP_LINEAR);
         curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MAG_FILTER, curContext.LINEAR);
@@ -8477,6 +8633,7 @@
           var normalMatrix = new PMatrix3D();
           normalMatrix.set(v);
           normalMatrix.invert();
+          normalMatrix.transpose();
 
           uniformMatrix(programObject3D, "normalTransform", false, normalMatrix.array());
 
@@ -8766,11 +8923,11 @@
       };
 
       this.mask = function(mask) {
-        this._mask = undef;
+        this.__mask = undef;
 
         if (mask instanceof PImage) {
           if (mask.width === this.width && mask.height === this.height) {
-            this._mask = mask;
+            this.__mask = mask;
           } else {
             throw "mask must have the same dimensions as PImage.";
           }
@@ -8779,7 +8936,7 @@
           // how do we update this for 0.9 this.imageData holding pixels ^^
           // mask.constructor ? and this.pixels.length = this.imageData.data.length instead ?
           if (this.pixels.length === mask.length) {
-            this._mask = mask;
+            this.__mask = mask;
           } else {
             throw "mask array must be the same length as PImage pixels array.";
           }
@@ -9243,30 +9400,41 @@
     // Draws an image to the Canvas
     p.image = function image(img, x, y, w, h) {
       if (img.width > 0) {
-        var bounds = imageModeConvert(x || 0, y || 0, w || img.width, h || img.height, arguments.length < 4);
-        var obj = img.toImageData();
+        var wid = w || img.width;
+        var hgt = h || img.height;
+        if (p.use3DContext) {
+          p.beginShape(p.QUADS);
+          p.texture(img.externals.canvas);
+          p.vertex(x, y, 0, 0, 0);
+          p.vertex(x, y+hgt, 0, 0, hgt);
+          p.vertex(x+wid, y+hgt, 0, wid, hgt);
+          p.vertex(x+wid, y, 0, wid, 0);
+          p.endShape();
+        } else {
+          var bounds = imageModeConvert(x || 0, y || 0, w || img.width, h || img.height, arguments.length < 4);
+          var obj = img.toImageData();
 
-        if (img._mask) {
-          var j, size;
-          if (img._mask instanceof PImage) {
-            var objMask = img._mask.toImageData();
-            for (j = 2, size = img.width * img.height * 4; j < size; j += 4) {
-              // using it as an alpha channel
-              obj.data[j + 1] = objMask.data[j];
-              // but only the blue color channel
-            }
-          } else {
-            for (j = 0, size = img._mask.length; j < size; ++j) {
-              obj.data[(j << 2) + 3] = img._mask[j];
+          if (img.__mask) {
+            var j, size;
+            if (img.__mask instanceof PImage) {
+              var objMask = img.__mask.toImageData();
+              for (j = 2, size = img.width * img.height * 4; j < size; j += 4) {
+                // using it as an alpha channel
+                obj.data[j + 1] = objMask.data[j];
+                // but only the blue color channel
+              }
+            } else {
+              for (j = 0, size = img.__mask.length; j < size; ++j) {
+                obj.data[(j << 2) + 3] = img.__mask[j];
+              }
             }
           }
+
+          // draw the image
+          curTint(obj);
+        
+          curContext.drawImage(getCanvasData(obj).canvas, 0, 0, img.width, img.height, bounds.x, bounds.y, bounds.w, bounds.h);
         }
-
-        // draw the image
-        curTint(obj);
-
-        curContext.drawImage(getCanvasData(obj).canvas, 0, 0, img.width, img.height,
-          bounds.x, bounds.y, bounds.w, bounds.h);
       }
     };
 
@@ -10190,6 +10358,7 @@
       if (name.indexOf(".svg") === -1) {
         return {
           name: "\"" + name + "\", sans-serif",
+          origName: name,
           width: function(str) {
             if ("measureText" in curContext) {
               return curContext.measureText(typeof str === "number" ? String.fromCharCode(str) : str).width / curTextSize;
@@ -10618,7 +10787,6 @@
       var aspect = textcanvas.width/textcanvas.height;
       curContext = oldContext;
 
-      //curContext.texImage2D(curContext.TEXTURE_2D, 0, textcanvas, false, true);
       executeTexImage2D(textcanvas);
       curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MAG_FILTER, curContext.LINEAR);
       curContext.texParameteri(curContext.TEXTURE_2D, curContext.TEXTURE_MIN_FILTER, curContext.LINEAR_MIPMAP_LINEAR);
@@ -10626,7 +10794,7 @@
 
       // horizontal offset/alignment
       var xOffset = 0;
-      if(align === PConstants.RIGHT) {
+      if (align === PConstants.RIGHT) {
         xOffset = -textWidth;
       } else if(align === PConstants.CENTER) {
         xOffset = -textWidth/2;
@@ -10636,19 +10804,25 @@
       model.translate(x+xOffset-scalefactor/2, y-scalefactor, z);
       model.scale(-aspect*scalefactor, -scalefactor, scalefactor);
       model.translate(-1, -1, -1);
+      model.transpose();
 
       var view = new PMatrix3D();
       view.scale(1, -1, 1);
       view.apply(modelView.array());
+      view.transpose();
+      
+      var proj = new PMatrix3D();
+      proj.set(projection);
+      proj.transpose();
 
       curContext.useProgram(programObject2D);
       vertexAttribPointer(programObject2D, "Vertex", 3, textBuffer);
       vertexAttribPointer(programObject2D, "aTextureCoord", 2, textureBuffer);
       uniformi(programObject2D, "uSampler", [0]);
       uniformi(programObject2D, "picktype", 1);
-      uniformMatrix( programObject2D, "model", true,  model.array() );
-      uniformMatrix( programObject2D, "view", true, view.array() );
-      uniformMatrix( programObject2D, "projection", true, projection.array() );
+      uniformMatrix(programObject2D, "model", false,  model.array());
+      uniformMatrix(programObject2D, "view", false, view.array());
+      uniformMatrix(programObject2D, "projection", false, proj.array());
       uniformf(programObject2D, "color", fillStyle);
       curContext.bindBuffer(curContext.ELEMENT_ARRAY_BUFFER, indexBuffer);
       curContext.drawElements(curContext.TRIANGLES, 6, curContext.UNSIGNED_SHORT, 0);
@@ -10746,43 +10920,74 @@
       // actual draw
       var lineFunction = p.use3DContext ?  text$line$3d : text$line;
       var xOffset = 0;
-      if(horizontalTextAlignment === PConstants.CENTER) {
+      if (horizontalTextAlignment === PConstants.CENTER) {
         xOffset = width / 2;
-      } else if(horizontalTextAlignment === PConstants.RIGHT) {
+      } else if (horizontalTextAlignment === PConstants.RIGHT) {
         xOffset = width;
       }
 
       // offsets for alignment
       var boxYOffset1 = (1-baselineOffset) * curTextSize, boxYOffset2 = 0;
-      if(verticalTextAlignment === PConstants.BOTTOM) {
+      if (verticalTextAlignment === PConstants.BOTTOM) {
         boxYOffset2 = height-yOffset;
-      } else if(verticalTextAlignment === PConstants.CENTER) {
+      } else if (verticalTextAlignment === PConstants.CENTER) {
         boxYOffset2 = (height-yOffset) / 2;
       }
 
-      for(var il=0,ll=drawCommands.length; il<ll; ++il) {
+      for (var il=0,ll=drawCommands.length; il<ll; ++il) {
         var command = drawCommands[il];
-        if(command.offset + boxYOffset2 < 0) {
+        if (command.offset + boxYOffset2 < 0) {
           continue; // skip if not inside box yet
         }
-        if(command.offset + boxYOffset2 + curTextSize > height) {
+        if (command.offset + boxYOffset2 + curTextSize > height) {
           break; // stop if no enough space for one more line draw
         }
-        lineFunction(command.text, x + xOffset, y + command.offset + boxYOffset1 + boxYOffset2, 
-                     z, horizontalTextAlignment);
+        lineFunction(command.text, x + xOffset, y + command.offset + boxYOffset1 + boxYOffset2, z, horizontalTextAlignment);
       }
     }
 
     p.text = function text() {
-      if (arguments.length === 3) { // for text( str, x, y)
-        text$4(toP5String(arguments[0]), arguments[1], arguments[2], 0);
-      } else if (arguments.length === 4) { // for text( str, x, y, z)
-        text$4(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3]);
-      } else if (arguments.length === 5) { // for text( str, x, y , width, height)
-        text$6(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3], arguments[4], 0);
-      } else if (arguments.length === 6) { // for text( stringdata, x, y , width, height, z)
-        text$6(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
+      if (tMode === PConstants.SCREEN) {  // TODO: 3D Screen not working yet due to 3D not working in textAscent
+        p.pushMatrix();
+        p.resetMatrix();
+        var asc = p.textAscent();
+        var des = p.textDescent();
+        var tWidth = p.textWidth(arguments[0]);
+        var tHeight = asc + des;
+        var font = p.loadFont(curTextFont.origName);
+        var hud = p.createGraphics(tWidth, tHeight);
+        hud.beginDraw();
+        hud.fill(currentFillColor);
+        hud.opaque = false;
+        hud.background(0, 0, 0, 0);
+        hud.textFont(font);
+        hud.textSize(curTextSize);
+        hud.text(arguments[0], 0, asc);
+        hud.endDraw();
+        if (arguments.length === 5 || arguments.length === 6) {
+          p.image(hud, arguments[1], arguments[2]-asc, arguments[3], arguments[4]);
+        } else {
+          p.image(hud, arguments[1], arguments[2]-asc);
+        }
+        p.popMatrix();
       }
+      else if (tMode === PConstants.SHAPE) {
+        // TODO: requires beginRaw function
+      } else {
+        if (arguments.length === 3) { // for text( str, x, y)
+          text$4(toP5String(arguments[0]), arguments[1], arguments[2], 0);
+        } else if (arguments.length === 4) { // for text( str, x, y, z)
+          text$4(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3]);
+        } else if (arguments.length === 5) { // for text( str, x, y , width, height)
+          text$6(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3], arguments[4], 0);
+        } else if (arguments.length === 6) { // for text( stringdata, x, y , width, height, z)
+          text$6(toP5String(arguments[0]), arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]);
+        }
+      }
+    };
+    
+    p.textMode = function textMode(mode){
+      tMode = mode;
     };
 
     // Load Batik SVG Fonts and parse to pre-def objects for quick rendering
@@ -11405,13 +11610,14 @@
       "pushMatrix", "pushStyle", "PVector", "quad", "radians", "random", 
       "Random", "randomSeed", "rect", "rectMode", "red", "redraw", 
       "requestImage", "resetMatrix", "reverse", "rotate", "rotateX", "rotateY", 
-      "rotateZ", "round", "saturation", "save", "saveStrings", "scale", "screenX",
-      "screenY", "screenZ", "second", "set", "setup", "shape", "shapeMode", "shared", 
-      "shininess", "shorten", "sin", "size", "smooth", "sort", "specular", 
-      "sphere", "sphereDetail", "splice", "split", "splitTokens", "spotLight", 
-      "sq", "sqrt", "status", "str", "stroke", "strokeCap", "strokeJoin", 
-      "strokeWeight", "subset", "tan", "text", "textAlign", "textAscent", "textDescent",
-      "textFont", "textSize", "texture", "textureMode", "textWidth", "tint", "translate", 
+      "rotateZ", "round", "saturation", "save", "saveStrings", "scale", 
+      "screenX", "screenY", "screenZ", "second", "set", "setup", "shape", 
+      "shapeMode", "shared", "shininess", "shorten", "sin", "size", "smooth", 
+      "sort", "specular", "sphere", "sphereDetail", "splice", "split", 
+      "splitTokens", "spotLight", "sq", "sqrt", "status", "str", "stroke", 
+      "strokeCap", "strokeJoin", "strokeWeight", "subset", "tan", "text", 
+      "textAlign", "textAscent", "textDescent", "textFont", "textMode", 
+      "textSize", "texture", "textureMode", "textWidth", "tint", "translate", 
       "triangle", "trim", "unbinary", "unhex", "updatePixels", "use3DContext", 
       "vertex", "width", "XMLElement", "year", "__frameRate", "__keyPressed", 
       "__mousePressed"];
